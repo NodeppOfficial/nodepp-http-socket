@@ -1,5 +1,5 @@
 # Nodepp-HTTP-Socket
-a simple chunk encoding websocket like implementation that does not require JS enabled enabling you to use real-time comunication in darkweb
+a simple chunk encoding websocket like implementation that does not require JS enabled.
 
 ## Client
 ```cpp
