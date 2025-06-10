@@ -32,16 +32,16 @@ public:
     template< class... T > 
     hss_t( const T&... args ) noexcept : ssocket_t( args... ), hs( new NODE() ){}
 
-    virtual int _write( char* bf, const ulong& sx ) const noexcept {
+    virtual int _write( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->write( this, bf, sx )==1 ){ return -2; }
-        return hs->write.data==0 ? -2 : hs->write.data;
+        return hs->write.data==0 ? -1 : hs->write.data;
     }
 
-    virtual int _read( char* bf, const ulong& sx ) const noexcept {
+    virtual int _read ( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->read( this, bf, sx )==1 ){ return -2; }
-        return hs->read.data==0 ? -2 : hs->read.data;
+        return hs->read.data==0 ? -1 : hs->read.data;
     }
 
 };}
@@ -56,8 +56,8 @@ namespace nodepp { namespace hss {
         if ( !_hs_::server( hrv ) ){ return; }
 
     process::task::add([=](){ 
-        skt.onConnect.once([=]( hss_t cli ){ stream::pipe(cli); });
-        cli.onDrain  .once([=](){ cli.free(); cli.onData.clear(); });
+        cli.onDrain  .once([=](){ cli.free(); });
+        skt.onConnect.once([=]( hss_t ctx ){ stream::pipe(ctx); });
         cli.set_timeout(0); cli.resume(); skt.onConnect.emit(cli);
     return -1; });
 
@@ -80,8 +80,8 @@ namespace nodepp { namespace hss {
         if(!_hs_::client( hrv, uri ) ){ return; }
 
     process::task::add([=](){ 
-        skt.onConnect.once([=]( hss_t cli ){ stream::pipe(cli); });
-        cli.onDrain  .once([=](){ cli.free(); cli.onData.clear(); });
+        cli.onDrain  .once([=](){ cli.free(); });
+        skt.onConnect.once([=]( hss_t ctx ){ stream::pipe(ctx); });
         cli.set_timeout(0); cli.resume(); skt.onConnect.emit(cli);
     return -1; });
             

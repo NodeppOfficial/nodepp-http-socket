@@ -35,13 +35,13 @@ public:
     virtual int _write( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->write( this, bf, sx )==1 ){ return -2; }
-        return hs->write.data==0 ? -2 : hs->write.data;
+        return hs->write.data==0 ? -1 : hs->write.data;
     }
 
-    virtual int _read( char* bf, const ulong& sx ) const noexcept override {
+    virtual int _read ( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->read( this, bf, sx )==1 ){ return -2; }
-        return hs->read.data==0 ? -2 : hs->read.data;
+        return hs->read.data==0 ? -1 : hs->read.data;
     }
 
 };}

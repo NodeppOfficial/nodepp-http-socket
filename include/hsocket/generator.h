@@ -51,53 +51,45 @@ namespace nodepp { namespace _hs_ {
 
     GENERATOR( read ){ 
     protected:
-            ptr_t<char> fb = ptr_t<char>(4);
-            string_t buffer;
-            ulong sy   = 0;
-            ulong sz   = 0;
-            int    c   = 0;
-    public: ulong data = 0;
+    ptr_t<char>   fb=ptr_t<char>(4);
+        string_t  bff;
+        ulong     size =0, sz=0;
+        int       state=0;
+    public: ulong data =0;
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
-        if( str->is_closed() ){ return -1; }
-    gnStart; sy=0; data = 0; memset( bf, 0, sx );
-
-        while( bf[0] != '\n' ){
-       coWait((c=str->__read( bf, 1 ))==-2 );
-           if( c<=0 ){ data=-1; coEnd; } buffer.push(bf[0]);
-        }
+    gnStart
+    
+        memset( bf, 0, sx ); data=0; size=0; while( bf[0]!='\n' ){
+        coWait((state=str->__read( bf, 1 ))==-2 );
+            if( state<=0 ){ data=0; coEnd; }
+        bff.push(bf[0]); }
         
-        sz = encoder::hex::set<ulong>( buffer.slice(0,-2) );
-        if( sz == 0 ){ data=-1; coEnd; } buffer.clear();
+        size=encoder::hex::btoa<ulong>( bff.slice(0,-2) );
+        if( size==0 ){ data=0; coEnd; } bff.clear(); coYield(1);
 
-        coWait( str->_read_( bf, sz, sy )== 1 );
-        coWait( str->__read( fb.get(),2 )==-2 );
+        while ( size > 0 ){  sz = min( sx, size );
+        coWait((state=str->__read( bf,sz ))==-2 );
+            if( state<=0 ){ data=0; coEnd; }
+            size-= min( size, (ulong)state );
+            data = state; coStay(1);
+        }
 
-        data = sz;
-
-    gnStop
+    coWait( str->__read( fb.get(),2 )==-2 );
+    coGoto(0) ; gnStop
     }};
 
     GENERATOR( write ){
     protected:
-            string_t buffer;
-            ulong sy   = 0;
-            ulong sz   = 0;
-    public: ulong data = 0;
+            string_t bff;
+            ulong size=0;
+    public: ulong data=0;
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
-        if( str->is_closed() ){ return -1; }
-    gnStart; sy=0; data = 0;
+    gnStart
 
-        buffer = encoder::hex::get( sx )+"\r\n"; sz =buffer.size();
-
-        coWait( str->_write_( buffer.get(), sz, sy )==1 );
-        coWait( str->__write( bf, sx )==-2 );
-
-        buffer = "\r\n"; sz= buffer.size(); sy = 0;
-        coWait( str->_write_( buffer.get(), sz, sy )==1 );
-
-        data = sx;
+        bff=encoder::hex::get(sx)+"\r\n"+string_t(bf,sx)+"\r\n"; data=0;size=0;
+        coWait( str->_write_( bff.get(),bff.size(),size ) ==1 ); data = sx;
 
     gnStop
     }};
