@@ -60,28 +60,22 @@ namespace nodepp { namespace _hs_ {
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
         if( str->is_closed() ){ return -1; }
-    coStart; sy=0; data = 0; memset( bf, 0, sx );
+    gnStart; sy=0; data = 0; memset( bf, 0, sx );
 
         while( bf[0] != '\n' ){
-        while( (c=str->__read( bf, 1 ))==-2 ){ coNext; } 
+       coWait((c=str->__read( bf, 1 ))==-2 );
            if( c<=0 ){ data=-1; coEnd; } buffer.push(bf[0]);
         }
-
-        /*------*/
         
         sz = encoder::hex::set<ulong>( buffer.slice(0,-2) );
         if( sz == 0 ){ data=-1; coEnd; } buffer.clear();
 
-        /*------*/
-
-        while( str->_read_( bf, sz, sy )== 1 ){ coNext; }
-        while( str->__read( fb.get(),2 )==-2 ){ coNext; }
-
-        /*------*/
+        coWait( str->_read_( bf, sz, sy )== 1 );
+        coWait( str->__read( fb.get(),2 )==-2 );
 
         data = sz;
 
-    coStop
+    gnStop
     }};
 
     GENERATOR( write ){
@@ -93,25 +87,19 @@ namespace nodepp { namespace _hs_ {
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
         if( str->is_closed() ){ return -1; }
-    coStart; sy=0; data = 0;
+    gnStart; sy=0; data = 0;
 
         buffer = encoder::hex::get( sx )+"\r\n"; sz =buffer.size();
-        while( str->_write_( buffer.get(), sz, sy )==1 ){ coNext; }
 
-        /*------*/
-
-        while( str->__write( bf, sx )==-2 ){ coNext; }
-
-        /*------*/
+        coWait( str->_write_( buffer.get(), sz, sy )==1 );
+        coWait( str->__write( bf, sx )==-2 );
 
         buffer = "\r\n"; sz= buffer.size(); sy = 0;
-        while( str->_write_( buffer.get(), sz, sy )==1 ){ coNext; }
-
-        /*------*/
+        coWait( str->_write_( buffer.get(), sz, sy )==1 );
 
         data = sx;
 
-    coStop
+    gnStop
     }};
 
 }}

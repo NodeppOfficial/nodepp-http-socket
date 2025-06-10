@@ -32,13 +32,13 @@ public:
     template< class... T > 
     hs_t( const T&... args ) noexcept : socket_t( args... ), hs( new NODE() ){}
 
-    virtual int _write( char* bf, const ulong& sx ) const noexcept {
+    virtual int _write( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->write( this, bf, sx )==1 ){ return -2; }
         return hs->write.data==0 ? -2 : hs->write.data;
     }
 
-    virtual int _read( char* bf, const ulong& sx ) const noexcept {
+    virtual int _read( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->read( this, bf, sx )==1 ){ return -2; }
         return hs->read.data==0 ? -2 : hs->read.data;
@@ -50,61 +50,42 @@ public:
 
 namespace nodepp { namespace hs {
 
-    tcp_t server( const tcp_t& srv ){ srv.onSocket([=]( socket_t cli ){
+    tcp_t server( const tcp_t& skt ){ skt.onSocket([=]( socket_t cli ){
+
         auto hrv = type::cast<http_t>(cli);
         if ( !_hs_::server( hrv ) ){ return; }
 
-        cli.onDrain.once([=](){ cli.free(); cli.onData.clear(); });
-        ptr_t<_file_::read> _read = new _file_::read;
-        cli.set_timeout(0);
+    process::task::add([=](){
+        cli.onDrain  .once([=](){ cli.free(); });
+        skt.onConnect.once([=]( hs_t ctx ){ stream::pipe(ctx); });
+        cli.set_timeout(0); cli.resume(); skt.onConnect.emit(cli);
+    return -1; });
 
-        srv.onConnect.once([=]( hs_t ctx ){ process::poll::add([=](){
-            if(!cli.is_available() )    { cli.close(); return -1; }
-            if((*_read)(&ctx)==1 )      { return 1; }
-            if(  _read->state<=0 )      { return 1; }
-            ctx.onData.emit(_read->data); return 1;
-        }); });
-
-        process::task::add([=](){
-            cli.resume(); srv.onConnect.emit(cli); return -1;
-        });
-        
-    }); return srv; }
+    }); return skt; }
 
     /*─······································································─*/
 
     tcp_t server( agent_t* opt=nullptr ){
-        auto server = http::server( [=]( http_t /*unused*/ ){}, opt );
-                        hs::server( server ); return server; 
+    auto skt = http::server( [=]( http_t /*unused*/ ){}, opt );
+                 hs::server( skt ); return skt; 
     }
 
     /*─······································································─*/
 
     tcp_t client( const string_t& uri, agent_t* opt=nullptr ){ 
-    tcp_t srv ( [=]( socket_t /*unused*/ ){}, opt ); 
-        srv.connect( url::hostname(uri), url::port(uri) );
-        srv.onSocket.once([=]( socket_t cli ){
-            auto hrv = type::cast<http_t>(cli);
-            if ( !_hs_::client( hrv, uri ) ){ return; }
-
-            cli.onDrain.once([=](){ cli.free(); cli.onData.clear(); }); 
-            ptr_t<_file_::read> _read = new _file_::read;
-            cli.set_timeout(0);
-
-            srv.onConnect.once([=]( hs_t ctx ){ process::poll::add([=](){
-                if(!cli.is_available() )    { cli.close(); return -1; }
-                if((*_read)(&ctx)==1 )      { return 1; }
-                if(  _read->state<=0 )      { return 1; }
-                ctx.onData.emit(_read->data); return 1;
-            }); });
-
-            process::task::add([=](){
-                cli.resume(); srv.onConnect.emit(cli); return -1;
-            });
+    tcp_t skt   ( [=]( socket_t /*unused*/ ){}, opt ); 
+    skt.onSocket.once([=]( socket_t cli ){
         
-        });
-    
-    return srv; }
+        auto hrv = type::cast<http_t> (cli);
+        if( !_hs_::client( hrv, uri ) ){ return; }
+
+    process::task::add([=](){
+        cli.onDrain  .once([=](){ cli.free(); });
+        skt.onConnect.once([=]( hs_t ctx ){ stream::pipe(ctx); });
+        cli.set_timeout(0); cli.resume(); skt.onConnect.emit(cli);
+    return -1; });
+
+    }); skt.connect( url::hostname(uri), url::port(uri) ); return skt; }
 
 }}
 
