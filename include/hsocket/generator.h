@@ -58,6 +58,7 @@ namespace nodepp { namespace _hs_ {
     public: ulong data =0;
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
+        if( str->is_closed() ){ return -1; }
     gnStart
 
         memset( bf, 0, sx ); data=0; size=0; while( bf[0]!='\n' ){
@@ -86,6 +87,7 @@ namespace nodepp { namespace _hs_ {
     public: ulong data=0;
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
+        if( str->is_closed() ){ return -1; }
     gnStart
 
         bff=encoder::hex::get(sx)+"\r\n"+string_t(bf,sx)+"\r\n"; data=0;size=0;
