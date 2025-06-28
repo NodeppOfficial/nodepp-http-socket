@@ -1,5 +1,5 @@
 # Nodepp-HTTP-Socket
-A simple chunk encoding based websocket
+a simple chunk encoding websocket like implementation that does not require JS enabled.
 
 ## Client
 ```cpp
