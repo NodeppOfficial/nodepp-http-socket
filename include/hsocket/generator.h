@@ -3,15 +3,14 @@
 
 #include <nodepp/encoder.h>
 
-namespace nodepp { namespace _hs_ {
-    
+namespace nodepp { namespace generator { namespace hs {
+
     /*─······································································─*/
 
-    template< class T > bool server( T& cli ) {
-        auto data = cli.read(); cli.set_borrow( data ); int c=0;
-        
-        while(( c=cli.read_header() )>0 ); /*{ process::next(); }*/
-           if(  c == -1  ){ return 0; }
+    template< class T > bool server( T& cli ) { do {
+        auto data = cli.read(); cli.set_borrow( data );
+        int c=0; while( (c=cli.read_header())==1 ){}
+        if( c != 0 ){ break; }
 
         if( cli.headers["Upgrade"].to_lower_case() == "http-socket" ){
 
@@ -21,101 +20,83 @@ namespace nodepp { namespace _hs_ {
                 { "Connection", "upgrade" }
             }) );
 
-            cli.stop();             return 1;
-        }   cli.set_borrow( data ); return 0;
-    }
-    
+            cli.stop(); return 1;
+        }   cli.set_borrow(data); break;
+        
+    } while(0); return 0; }
+
     /*─······································································─*/
 
-    template< class T > bool client( T& cli, string_t url ) {
+    template< class T > bool client( T& cli, string_t url ) { do {
 
-        int c=0; header_t header ({
+        header_t header ({
             { "Transfer-Encoding", "chunked" },
             { "Upgrade", "http-socket" },
             { "Connection", "upgrade" }
         });
 
         cli.write_header( "GET", url::path(url), "HTTP/1.0", header );
+        int c=0; while( (c=cli.read_header())==1 ){}
 
-        while(( c=cli.read_header() )>0 ); /*{ process::next(); }*/ if( c!=0 ){
-            _EERROR(cli.onError,"Could not connect to server");
-            cli.close(); return false; 
+        if( c != 0 ){
+            cli.onError.emit("Could not connect to server");
+            cli.close(); break;
         }
 
-        if( cli.status != 101 || cli.headers["Upgrade"].to_lower_case() != "http-socket" ){ 
-            _EERROR(cli.onError,string::format("Can't connect to Server -> status %d",cli.status)); 
-            cli.close(); return false; 
-        }   cli.stop();  return true;
-
-    }
+        if( cli.status != 101 || cli.headers["Upgrade"].to_lower_case() != "http-socket" ){
+            cli.onError.emit(string::format("Can't connect to Server -> status %d",cli.status));
+            cli.close(); break;
+        }   cli.stop();  
+        
+    return true; } while(0); return false; }
 
     /*─······································································─*/
 
-    GENERATOR( read ){ 
+    GENERATOR( read ){
     protected:
-            ptr_t<char> fb = ptr_t<char>(4);
-            string_t buffer;
-            ulong sy   = 0;
-            ulong sz   = 0;
-            int    c   = 0;
-    public: ulong data = 0;
+    ptr_t<char>   fb=ptr_t<char>(4);
+        ulong     size =0, sz=0, len=0;
+        string_t  bff;
+        int       state=0;
+    public: ulong data =0;
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
-        if( str->is_closed() ){ return -1; }
-    coStart; sy=0; data = 0; memset( bf, 0, sx );
+    coBegin
 
-        while( bf[0] != '\n' ){
-        while( (c=str->__read( bf, 1 ))==-2 ){ coNext; } 
-           if( c<=0 ){ data=-1; coEnd; } buffer.push(bf[0]);
-        }
+        memset( bf, 0, sx ); data=0; size=0; while( bf[0]!='\n' ){
+        coWait((state=str->__read( bf, 1 ))==-2 );
+            if( state<=0 ){ data=0; coEnd; }
+        bff.push(bf[0]); }
 
-        /*------*/
-        
-        sz = encoder::hex::set<ulong>( buffer.slice(0,-2) );
-        if( sz == 0 ){ data=-1; coEnd; } buffer.clear();
+        size=encoder::hex::btoa<ulong>( bff.slice(0,-2) );
+        if( size==0 ){ data=0; coEnd; } bff.clear();
 
-        /*------*/
+        coYield(1); len=0;
 
-        while( str->_read_( bf, sz, sy )== 1 ){ coNext; }
-        while( str->__read( fb.get(),2 )==-2 ){ coNext; }
+        while ( size > 0 ){  sz = min( sx, size );
+        coWait( str->_read_( bf, sz, len )==1 );
+            size -= len; data = len;
+        coStay(1); }
 
-        /*------*/
-
-        data = sz;
-
-    coStop
+    coWait( str->__read( fb.get(),2 )==-2 );
+    coGoto(0) ; coFinish
     }};
 
     GENERATOR( write ){
     protected:
-            string_t buffer;
-            ulong sy   = 0;
-            ulong sz   = 0;
-    public: ulong data = 0;
+            string_t bff;
+            ulong size=0;
+    public: ulong data=0;
 
     template<class T> coEmit( T* str, char* bf, const ulong& sx ) {
-        if( str->is_closed() ){ return -1; }
-    coStart; sy=0; data = 0;
+    coBegin
 
-        buffer = encoder::hex::get( sx )+"\r\n"; sz =buffer.size();
-        while( str->_write_( buffer.get(), sz, sy )==1 ){ coNext; }
+        bff=encoder::hex::get(sx)+"\r\n"+string_t(bf,sx)+"\r\n"; data=0;size=0;
+        coWait( str->_write_( bff.get(),bff.size(),size ) ==1 ); data = sx;
 
-        /*------*/
-
-        while( str->__write( bf, sx )==-2 ){ coNext; }
-
-        /*------*/
-
-        buffer = "\r\n"; sz= buffer.size(); sy = 0;
-        while( str->_write_( buffer.get(), sz, sy )==1 ){ coNext; }
-
-        /*------*/
-
-        data = sx;
-
-    coStop
+    coFinish
     }};
 
-}}
+}}}
 
 #endif

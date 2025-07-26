@@ -4,7 +4,7 @@
  * Licensed under the MIT (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
  * in the file LICENSE in the source distribution or at
- * https://github.com/NodeppOficial/nodepp/blob/main/LICENSE
+ * https://github.com/NodeppOfficial/nodepp/blob/main/LICENSE
  */
 
 /*────────────────────────────────────────────────────────────────────────────*/
@@ -23,8 +23,8 @@ namespace nodepp { class hs_t : public socket_t {
 protected:
 
     struct NODE {
-        _hs_::write write;
-        _hs_::read  read ;
+        generator::hs::write write;
+        generator::hs::read  read ;
     };  ptr_t<NODE> hs;
 
 public:
@@ -32,34 +32,16 @@ public:
     template< class... T > 
     hs_t( const T&... args ) noexcept : socket_t( args... ), hs( new NODE() ){}
 
-    virtual int _write( char* bf, const ulong& sx ) const noexcept {
+    virtual int _write( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->write( this, bf, sx )==1 ){ return -2; }
-        return hs->write.data==0 ? -2 : hs->write.data;
+        return hs->write.data==0 ? -1 : hs->write.data;
     }
 
-    virtual int _read( char* bf, const ulong& sx ) const noexcept {
+    virtual int _read ( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->read( this, bf, sx )==1 ){ return -2; }
-        return hs->read.data==0 ? -2 : hs->read.data;
-    }
-
-public:
-
-    bool _write_( char* bf, const ulong& sx, ulong& sy ) const noexcept {
-        if( sx==0 || is_closed() ){ return 1; } while( sy < sx ) {
-            int c = __write( bf+sy, sx-sy );
-            if( c <= 0 && c != -2 )          { return 0; }
-            if( c >  0 ){ sy += c; continue; } return 1;
-        }   return 0;
-    }
-
-    bool _read_( char* bf, const ulong& sx, ulong& sy ) const noexcept {
-        if( sx==0 || is_closed() ){ return 1; } while( sy < sx ) {
-            int c = __read( bf+sy, sx-sy );
-            if( c <= 0 && c != -2 )          { return 0; }
-            if( c >  0 ){ sy += c; continue; } return 1;
-        }   return 0;
+        return hs->read.data==0 ? -1 : hs->read.data;
     }
 
 };}
@@ -68,61 +50,50 @@ public:
 
 namespace nodepp { namespace hs {
 
-    tcp_t server( const tcp_t& srv ){ srv.onSocket([=]( socket_t cli ){
+    tcp_t server( const tcp_t& skt ){ skt.onSocket([=]( socket_t cli ){
+
         auto hrv = type::cast<http_t>(cli);
-        if ( !_hs_::server( hrv ) ){ return; }
+        if( !generator::hs::server( hrv ) )
+          { skt.onConnect.skip(); return; }   
 
-        cli.onDrain.once([=](){ cli.free(); cli.onData.clear(); });
-        ptr_t<_file_::read> _read = new _file_::read;
-        cli.set_timeout(0);
-
-        srv.onConnect.once([=]( hs_t ctx ){ process::poll::add([=](){
-            if(!cli.is_available() )    { cli.close(); return -1; }
-            if((*_read)(&ctx)==1 )      { return 1; }
-            if(  _read->state<=0 )      { return 1; }
-            ctx.onData.emit(_read->data); return 1;
-        }); });
-
-        process::task::add([=](){
-            cli.resume(); srv.onConnect.emit(cli); return -1;
+        process::add([=](){ 
+            skt.onConnect.resume( );
+            skt.onConnect.emit(cli); 
+            return -1;
         });
-        
-    }); return srv; }
+
+    }); skt.onConnect([=]( hs_t cli ){
+        cli.onDrain.once([=](){ cli.free(); });
+        cli.set_timeout(0); cli.resume(); stream::pipe(cli); 
+    }); return skt; }
 
     /*─······································································─*/
 
     tcp_t server( agent_t* opt=nullptr ){
-        auto server = http::server( [=]( http_t /*unused*/ ){}, opt );
-                        hs::server( server ); return server; 
+    auto skt = http::server( [=]( http_t ){}, opt );
+                 hs::server( skt ); return skt;
     }
 
     /*─······································································─*/
 
     tcp_t client( const string_t& uri, agent_t* opt=nullptr ){ 
-    tcp_t srv ( [=]( socket_t /*unused*/ ){}, opt ); 
-        srv.connect( url::hostname(uri), url::port(uri) );
-        srv.onSocket.once([=]( socket_t cli ){
-            auto hrv = type::cast<http_t>(cli);
-            if ( !_hs_::client( hrv, uri ) ){ return; }
+    tcp_t skt   ( [=]( socket_t ){}, opt );
+    skt.onSocket.once([=]( socket_t cli ){
 
-            cli.onDrain.once([=](){ cli.free(); cli.onData.clear(); }); 
-            ptr_t<_file_::read> _read = new _file_::read;
-            cli.set_timeout(0);
+        auto hrv = type::cast<http_t> (cli);
+        if(!generator::hs::client( hrv, uri ) )
+          { skt.onConnect.skip(); return; }   
 
-            srv.onConnect.once([=]( hs_t ctx ){ process::poll::add([=](){
-                if(!cli.is_available() )    { cli.close(); return -1; }
-                if((*_read)(&ctx)==1 )      { return 1; }
-                if(  _read->state<=0 )      { return 1; }
-                ctx.onData.emit(_read->data); return 1;
-            }); });
-
-            process::task::add([=](){
-                cli.resume(); srv.onConnect.emit(cli); return -1;
-            });
-        
+        process::add([=](){ 
+            skt.onConnect.resume( );
+            skt.onConnect.emit(cli); 
+            return -1;
         });
-    
-    return srv; }
+
+    }); skt.onConnect.once([=]( hs_t cli ){
+        cli.onDrain.once([=](){ cli.free(); });
+        cli.set_timeout(0); cli.resume(); stream::pipe(cli); 
+    }); skt.connect( url::hostname(uri), url::port(uri) ); return skt; }
 
 }}
 

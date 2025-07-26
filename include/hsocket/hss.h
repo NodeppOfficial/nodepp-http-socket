@@ -9,8 +9,8 @@
 
 /*────────────────────────────────────────────────────────────────────────────*/
 
-#ifndef NODEPP_hsS
-#define NODEPP_hsS
+#ifndef NODEPP_HTTPS_SOCKET
+#define NODEPP_HTTPS_SOCKET
 
 /*────────────────────────────────────────────────────────────────────────────*/
 
@@ -23,8 +23,8 @@ namespace nodepp { class hss_t : public ssocket_t {
 protected:
 
     struct NODE {
-        _hs_::write write;
-        _hs_::read  read ;
+        generator::hs::write write;
+        generator::hs::read  read ;
     };  ptr_t<NODE> hs;
 
 public:
@@ -32,34 +32,16 @@ public:
     template< class... T > 
     hss_t( const T&... args ) noexcept : ssocket_t( args... ), hs( new NODE() ){}
 
-    virtual int _write( char* bf, const ulong& sx ) const noexcept {
+    virtual int _write( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->write( this, bf, sx )==1 ){ return -2; }
-        return hs->write.data==0 ? -2 : hs->write.data;
+        return hs->write.data==0 ? -1 : hs->write.data;
     }
 
-    virtual int _read( char* bf, const ulong& sx ) const noexcept {
+    virtual int _read ( char* bf, const ulong& sx ) const noexcept override {
         if( is_closed() ){ return -1; } if( sx==0 ){ return 0; }
         while( hs->read( this, bf, sx )==1 ){ return -2; }
-        return hs->read.data==0 ? -2 : hs->read.data;
-    }
-
-public:
-
-    bool _write_( char* bf, const ulong& sx, ulong& sy ) const noexcept {
-        if( sx==0 || is_closed() ){ return 1; } while( sy < sx ) {
-            int c = __write( bf+sy, sx-sy );
-            if( c <= 0 && c != -2 )          { return 0; }
-            if( c >  0 ){ sy += c; continue; } return 1;
-        }   return 0;
-    }
-
-    bool _read_( char* bf, const ulong& sx, ulong& sy ) const noexcept {
-        if( sx==0 || is_closed() ){ return 1; } while( sy < sx ) {
-            int c = __read( bf+sy, sx-sy );
-            if( c <= 0 && c != -2 )          { return 0; }
-            if( c >  0 ){ sy += c; continue; } return 1;
-        }   return 0;
+        return hs->read.data==0 ? -1 : hs->read.data;
     }
 
 };}
@@ -68,61 +50,50 @@ public:
 
 namespace nodepp { namespace hss {
 
-    tls_t server( const tls_t& srv ){ srv.onSocket([=]( ssocket_t cli ){
+    tls_t server( const tls_t& skt ){ skt.onSocket([=]( ssocket_t cli ){
+       
         auto hrv = type::cast<https_t>(cli);
-        if ( !_hs_::server( hrv ) ){ return; }
+        if(!generator::hs::server( hrv ) )
+          { skt.onConnect.skip(); return; }   
 
-        cli.onDrain.once([=](){ cli.free(); cli.onData.clear(); }); 
-        ptr_t<_file_::read> _read = new _file_::read;
-        cli.set_timeout(0);
-
-        srv.onConnect.once([=]( hss_t ctx ){ process::poll::add([=](){ 
-            if(!cli.is_available() )    { cli.close(); return -1; }
-            if((*_read)(&ctx)==1 )      { return 1; }
-            if(  _read->state<=0 )      { return 1; }
-            ctx.onData.emit(_read->data); return 1;
-        }); });
-
-        process::task::add([=](){
-            cli.resume(); srv.onConnect.emit(cli); return -1;
+        process::add([=](){ 
+            skt.onConnect.resume( );
+            skt.onConnect.emit(cli); 
+            return -1;
         });
 
-    }); return srv; }
+    }); skt.onConnect([=]( hss_t cli ){
+        cli.onDrain.once([=](){ cli.free(); });
+        cli.set_timeout(0); cli.resume(); stream::pipe(cli); 
+    }); return skt; }
 
     /*─······································································─*/
 
     tls_t server( const ssl_t* ssl, agent_t* opt=nullptr ){
-        auto server = https::server( [=]( https_t /*unused*/ ){}, ssl, opt );
-                        hss::server( server ); return server;     
+    auto skt = https::server( [=]( https_t ){}, ssl, opt );
+                 hss::server( skt ); return skt;
     }
 
     /*─······································································─*/
 
     tls_t client( const string_t& uri, const ssl_t* ssl, agent_t* opt=nullptr ){
-    tls_t srv ( [=]( ssocket_t /*unused*/ ){}, ssl, opt ); 
-        srv.connect( url::hostname(uri), url::port(uri) );
-        srv.onSocket.once([=]( ssocket_t cli ){
-            auto hrv = type::cast<https_t>(cli);
-            if ( !_hs_::client( hrv, uri ) ){ return; }
-            
-            cli.onDrain.once([=](){ cli.free(); cli.onData.clear(); });
-            ptr_t<_file_::read> _read = new _file_::read;
-            cli.set_timeout(0);
+    tls_t skt   ( [=]( ssocket_t ){}, ssl, opt ); 
+    skt.onSocket.once([=]( ssocket_t cli ){
 
-            srv.onConnect.once([=]( hss_t ctx ){ process::poll::add([=](){
-                if(!cli.is_available() )    { cli.close(); return -1; }
-                if((*_read)(&ctx)==1 )      { return 1; }
-                if(  _read->state<=0 )      { return 1; }
-                ctx.onData.emit(_read->data); return 1;
-            }); });
+        auto hrv = type::cast<https_t>(cli);
+        if(!generator::hs::client( hrv, uri ) )
+          { skt.onConnect.skip(); return; }   
 
-            process::task::add([=](){
-                cli.resume(); srv.onConnect.emit(cli); return -1;
-            });
-            
+        process::add([=](){ 
+            skt.onConnect.resume( );
+            skt.onConnect.emit(cli); 
+            return -1;
         });
-    
-    return srv; }
+
+    }); skt.onConnect.once([=]( hss_t cli ){
+        cli.onDrain.once([=](){ cli.free(); });
+        cli.set_timeout(0); cli.resume(); stream::pipe(cli); 
+    }); skt.connect( url::hostname(uri), url::port(uri) ); return skt; }
 
 }}
 
